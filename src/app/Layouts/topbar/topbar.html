@@ -1,0 +1,21 @@
+<header class="app-topbar">
+  <button
+    class="menu-toggle"
+    type="button"
+    aria-label="Open navigation"
+    (click)="menuToggle.emit()"
+  >
+    <span></span><span></span><span></span>
+  </button>
+  <div class="topbar-context">
+    <span class="topbar-label">Hospital workspace</span>
+    <span class="topbar-current-role">{{ role }}</span>
+  </div>
+  <div class="topbar-account">
+    <span class="topbar-user">
+      <span class="user-avatar" aria-hidden="true">{{ initials }}</span>
+      <span class="topbar-email">{{ email }}</span>
+    </span>
+    <button class="quiet-button topbar-signout" type="button" (click)="signOut()">Sign out</button>
+  </div>
+</header>
