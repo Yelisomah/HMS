@@ -1,0 +1,27 @@
+<section class="dashboard-view">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Hospital workspace</p>
+      <h1>{{ definition?.title ?? 'Workspace' }}</h1>
+      <p class="dashboard-intro">{{ definition?.description }}</p>
+    </div>
+  </div>
+
+  @if (loading) {
+    <p class="loading-message" role="status">Loading {{ definition?.title?.toLowerCase() }}…</p>
+  } @else if (errorMessage) {
+    <div class="form-alert dashboard-alert" role="alert">{{ errorMessage }}</div>
+  } @else if (!rows.length) {
+    <div class="panel-card empty-state"><p>{{ definition?.emptyText }}</p></div>
+  } @else {
+    <div class="workspace-list">
+      @for (row of rows; track $index) {
+        <article class="workspace-row">
+          <span class="row-mark" aria-hidden="true">{{ row.title.slice(0, 1).toUpperCase() }}</span>
+          <div class="row-copy"><strong>{{ row.title }}</strong><span>{{ row.detail }}</span></div>
+          <span class="row-meta">{{ row.meta }}</span>
+        </article>
+      }
+    </div>
+  }
+</section>

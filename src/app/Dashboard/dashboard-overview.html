@@ -1,0 +1,51 @@
+<section class="dashboard-view">
+  <!-- <div class="page-heading">
+    <div>
+      <p class="eyebrow">Hospital workspace</p>
+      <h1>{{ role }} dashboard</h1>
+      <p class="dashboard-intro">Overview of activity across your hospital.</p>
+    </div>
+    <span class="today-label">{{ today | date: 'EEEE, MMMM d' }}</span>
+  </div> -->
+
+  @if (loading) {
+    <p class="loading-message" role="status">Loading hospital overview…</p>
+  } @else if (errorMessage) {
+    <div class="form-alert dashboard-alert" role="alert">{{ errorMessage }}</div>
+  } @else if (summary) {
+    <div class="stat-grid">
+      <a class="stat-card" routerLink="patients">
+        <span class="stat-icon stat-teal" aria-hidden="true">♙</span>
+        <span class="stat-label">Patients</span>
+        <strong>{{ summary.patients }}</strong>
+        <span class="stat-link">View patients <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="stat-card" routerLink="appointments">
+        <span class="stat-icon stat-blue" aria-hidden="true">▦</span>
+        <span class="stat-label">Appointments</span>
+        <strong>{{ summary.appointments }}</strong>
+        <span class="stat-link">View schedule <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="stat-card" routerLink="staff">
+        <span class="stat-icon stat-purple" aria-hidden="true">♧</span>
+        <span class="stat-label">Staff members</span>
+        <strong>{{ summary.staff }}</strong>
+        <span class="stat-link">View staff <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="stat-card" routerLink="departments">
+        <span class="stat-icon stat-orange" aria-hidden="true">⌂</span>
+        <span class="stat-label">Departments</span>
+        <strong>{{ summary.departments }}</strong>
+        <span class="stat-link">View departments <span aria-hidden="true">→</span></span>
+      </a>
+    </div>
+    <section class="panel-card">
+      <div>
+        <p class="eyebrow">Quick start</p>
+        <h2>Your workspace is ready</h2>
+        <p>Use the navigation to manage patients, appointments, staff, and hospital services.</p>
+      </div>
+      <a class="primary-button inline-button" routerLink="appointments">Open appointments <span aria-hidden="true">→</span></a>
+    </section>
+  }
+</section>
