@@ -1,32 +1,20 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { AuthService, isUserId, UserRole } from './auth.service';
+import { AuthService } from './auth.service';
 
-export const authGuard: CanActivateFn = (route) => {
+/** Requires a signed-in user. The backend still authorises every request. */
+export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
-  const router = inject(Router);
-  const role = auth.getRole();
-  const authenticatedUserId = auth.getUserId();
-  const requestedUserId = route.paramMap.get('userId');
-
-  if (!role || !authenticatedUserId) {
-    return router.createUrlTree(['/']);
-  }
-
-  if (!isUserId(requestedUserId)) {
-    return router.createUrlTree([auth.dashboardPathFor(authenticatedUserId)]);
-  }
-
-  if (requestedUserId !== authenticatedUserId) {
-    return router.createUrlTree([auth.dashboardPathFor(authenticatedUserId)]);
-  }
-
-  return true;
+  return auth.isSignedIn() ? true : inject(Router).createUrlTree(['/login']);
 };
 
-export const rolesGuard = (roles: UserRole[]): CanActivateFn => () => {
+/** Keeps the sign-in page out of reach once signed in. */
+export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
-  const router = inject(Router);
-  const role = auth.getRole();
-  return role && roles.includes(role) ? true : router.createUrlTree([auth.dashboardPathFor(auth.getUserId() ?? '')]);
+  return auth.isSignedIn() ? inject(Router).createUrlTree(['/app']) : true;
+};
+
+export const adminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  return auth.isAdmin() ? true : inject(Router).createUrlTree(['/app']);
 };

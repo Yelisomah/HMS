@@ -1,210 +1,154 @@
-import { inject, Injectable } from '@angular/core';
-import { Observable, finalize, map, of, tap, throwError } from 'rxjs';
-import { API_ENDPOINTS, USE_MOCK_DATA } from '../core/api/api.config';
+import { computed, inject, Injectable, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError } from 'rxjs';
+import { ENDPOINTS } from '../core/api/api.config';
 import { ApiService } from '../core/api/api.service';
-import { AuthUser, LoginRequest, LoginResponse } from '../core/api/api.models';
-import { HmsStore } from '../core/hms.store';
+import { LoginRequest, LoginResponse, ResponseMessage } from '../core/api/api.models';
 
-export const USER_ROLES = ['Admin', 'Doctor', 'Nurse', 'Pharmacist', 'Lab_Technician'] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+const ACCESS_KEY = 'hms-access-token';
+const REFRESH_KEY = 'hms-refresh-token';
 
-const ROLE_STORAGE_KEY = 'hms-user-role';
-const EMAIL_STORAGE_KEY = 'hms-user-email';
-const USER_ID_STORAGE_KEY = 'hms-user-id';
-const NAME_KEY = 'hms-user-name';
-const ACCESS_TOKEN_KEY = 'hms-access-token';
+export interface SessionUser {
+  id: string;
+  username: string;
+  name: string;
+  staffNumber: string;
+  /** Upper-cased role name without any ROLE_ prefix, e.g. ADMIN, DOCTOR, NURSE. */
+  role: string;
+  mustChangePassword: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiService);
-  private readonly store = inject(HmsStore);
+  private readonly router = inject(Router);
+  private refreshing$: Observable<string> | null = null;
 
-  authenticate(email: string, password: string): Observable<AuthUser> {
-    const credentials: LoginRequest = { email: email.trim(), password };
-    if (USE_MOCK_DATA) {
-      if (password.length < 8) {
-        return throwError(() => new Error('Demo passwords must be at least eight characters.'));
-      }
+  private readonly token = signal<string | null>(sessionStorage.getItem(ACCESS_KEY));
 
-      const member = this.store.staff().find(
-        (staff) => staff.email.toLowerCase() === credentials.email.toLowerCase(),
-      );
-      if (!member) {
-        return throwError(() => new Error('Use an email address from the demo staff list.'));
-      }
+  /** Signed-in user, decoded from the access token. The server remains the authority on permissions. */
+  readonly user = computed<SessionUser | null>(() => {
+    const token = this.token();
+    return token ? userFromClaims(decodeJwt(token)) : null;
+  });
+  readonly isAdmin = computed(() => hasRole(this.user()?.role, 'ADMIN'));
+  readonly isDoctor = computed(() => hasRole(this.user()?.role, 'DOCTOR', 'PHYSICIAN'));
+  readonly isNurse = computed(() => hasRole(this.user()?.role, 'NURSE'));
 
-      const user: AuthUser = {
-        id: member.id,
-        name: member.name,
-        email: member.email,
-        role: toDashboardRole(member.role),
-      };
-      this.saveSession('demo-session-token', user);
-      return of(user);
-    }
-
-    return this.api.post<unknown, LoginRequest>(API_ENDPOINTS.auth.login, credentials).pipe(
-      map(parseLoginResponse),
-      tap(({ access_token, user }) => this.saveSession(access_token, user)),
-      map(({ user }) => user),
-    );
-  }
-
-  requestPasswordReset(_email: string): Observable<never> {
-    return throwError(
-      () => new Error('Password reset is not available in the configured API documentation.'),
-    );
-  }
-
-  getRole(): UserRole | null {
-    const role = sessionStorage.getItem(ROLE_STORAGE_KEY);
-    return isUserRole(role) ? role : null;
-  }
-
-  getEmail(): string | null {
-    return sessionStorage.getItem(EMAIL_STORAGE_KEY);
-  }
-
-  getName(): string {
-    return sessionStorage.getItem(NAME_KEY) ?? '';
-  }
-
-  getUserId(): string | null {
-    return sessionStorage.getItem(USER_ID_STORAGE_KEY);
-  }
-
-  getAccessToken(): string | null {
-    return sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  }
-
-  loadCurrentUser(): Observable<AuthUser> {
-    if (USE_MOCK_DATA) {
-      const userId = this.getUserId();
-      const member = this.store.staff().find((staff) => staff.id === userId);
-      if (!member) {
-        return throwError(() => new Error('No signed-in demo user was found.'));
-      }
-      return of({
-        id: member.id,
-        name: member.name,
-        email: member.email,
-        role: toDashboardRole(member.role),
-      });
-    }
-
-    return this.api.get<unknown>(API_ENDPOINTS.auth.currentUser).pipe(
-      map((response) => {
-        if (!isRecord(response) || !isRecord(response['user'])) {
-          throw new Error('The current-user API returned an invalid response.');
-        }
-        return parseUser(response['user']);
+  login(credentials: LoginRequest): Observable<SessionUser> {
+    return this.api.post<LoginResponse>(ENDPOINTS.auth.login, credentials).pipe(
+      map((res) => {
+        if (!res?.accessToken) throw new Error(res?.message || 'Sign-in failed. Check your details and try again.');
+        this.saveTokens(res.accessToken, res.refreshToken);
+        const user = this.user();
+        if (!user) throw new Error('The server returned a session this app cannot read.');
+        return user;
       }),
     );
   }
 
-  signOut(): void {
-    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-    sessionStorage.removeItem(ROLE_STORAGE_KEY);
-    sessionStorage.removeItem(EMAIL_STORAGE_KEY);
-    sessionStorage.removeItem(USER_ID_STORAGE_KEY);
-    sessionStorage.removeItem(NAME_KEY);
+  /** Exchanges the refresh token for a new access token. Concurrent callers share one request. */
+  refresh(): Observable<string> {
+    const refreshToken = sessionStorage.getItem(REFRESH_KEY);
+    if (!refreshToken) return throwError(() => new Error('No refresh token'));
+    this.refreshing$ ??= this.api.post<LoginResponse>(ENDPOINTS.auth.refresh, { refreshToken }).pipe(
+      map((res) => {
+        if (!res?.accessToken) throw new Error('Refresh failed');
+        this.saveTokens(res.accessToken, res.refreshToken ?? refreshToken);
+        return res.accessToken;
+      }),
+      finalize(() => (this.refreshing$ = null)),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    );
+    return this.refreshing$;
   }
 
-  signOutFromApi(): Observable<void> {
-    if (USE_MOCK_DATA) {
-      this.signOut();
-      return of(void 0);
-    }
-
-    if (!this.getAccessToken()) {
-      this.signOut();
-      return of(void 0);
-    }
-
-    return this.api.post<unknown, null>(API_ENDPOINTS.auth.logout, null).pipe(
+  logout(): Observable<void> {
+    const hasToken = !!this.accessToken();
+    const request: Observable<unknown> = hasToken
+      ? this.api.post<ResponseMessage>(ENDPOINTS.auth.logout).pipe(catchError(() => of(null)))
+      : of(null);
+    return request.pipe(
+      tap(() => this.clear()),
       map(() => void 0),
-      finalize(() => this.signOut()),
     );
   }
 
-  dashboardPathFor(userId: string): string {
-    if (!userId.trim()) {
-      throw new Error('Cannot create a dashboard path without a user ID.');
-    }
-    return `/${encodeURIComponent(userId)}`;
+  /** Clears the local session and returns to the sign-in page. */
+  expireSession(notice = 'Your session has expired. Please sign in again.'): void {
+    this.clear();
+    void this.router.navigate(['/login'], { state: { authNotice: notice } });
   }
 
-  private saveSession(accessToken: string, user: AuthUser): void {
-    sessionStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-    sessionStorage.setItem(ROLE_STORAGE_KEY, user.role);
-    sessionStorage.setItem(EMAIL_STORAGE_KEY, user.email);
-    sessionStorage.setItem(USER_ID_STORAGE_KEY, user.id);
-    sessionStorage.setItem(NAME_KEY, user.name ?? '');
+  accessToken(): string | null {
+    return this.token();
+  }
+
+  hasRefreshToken(): boolean {
+    return !!sessionStorage.getItem(REFRESH_KEY);
+  }
+
+  /** True when there is a token that is unexpired, or that can be renewed. */
+  isSignedIn(): boolean {
+    const token = this.token();
+    if (!token) return false;
+    const exp = Number(decodeJwt(token)['exp']);
+    if (Number.isFinite(exp) && exp * 1000 <= Date.now()) return this.hasRefreshToken();
+    return true;
+  }
+
+  private saveTokens(access: string, refresh?: string): void {
+    sessionStorage.setItem(ACCESS_KEY, access);
+    if (refresh) sessionStorage.setItem(REFRESH_KEY, refresh);
+    this.token.set(access);
+  }
+
+  private clear(): void {
+    sessionStorage.removeItem(ACCESS_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+    this.token.set(null);
   }
 }
 
-export function isUserRole(value: unknown): value is UserRole {
-  return USER_ROLES.some((role) => role === value);
+export function hasRole(role: string | undefined, ...names: string[]): boolean {
+  return !!role && names.some((n) => role.includes(n));
 }
 
-export function isUserId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+export function decodeJwt(token: string): Record<string, unknown> {
+  try {
+    const payload = token.split('.')[1] ?? '';
+    const json = decodeURIComponent(
+      atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+        .split('')
+        .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join(''),
+    );
+    const parsed: unknown = JSON.parse(json);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
-function parseLoginResponse(response: unknown): LoginResponse & { user: AuthUser } {
-  if (!isRecord(response) || typeof response['access_token'] !== 'string') {
-    throw new Error('The login API returned an invalid session response.');
-  }
+function str(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
 
-  if (!isRecord(response['user'])) {
-    throw new Error('The login API did not return a user for these credentials.');
-  }
+function roleFromClaims(claims: Record<string, unknown>): string {
+  const raw = claims['role'] ?? claims['roles'] ?? claims['authorities'] ?? claims['scope'] ?? '';
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  const value = typeof first === 'object' && first ? ((first as Record<string, unknown>)['authority'] ?? (first as Record<string, unknown>)['name']) : first;
+  return str(value).split(/[ ,]/)[0].replace(/^ROLE_/i, '').toUpperCase();
+}
 
+function userFromClaims(claims: Record<string, unknown>): SessionUser {
+  const username = str(claims['username'] ?? claims['preferred_username'] ?? claims['sub']);
   return {
-    access_token: response['access_token'],
-    user: parseUser(response['user']),
+    id: str(claims['userId'] ?? claims['uid'] ?? claims['id'] ?? claims['sub']),
+    username,
+    name: str(claims['name'] ?? claims['fullName']) || username,
+    staffNumber: str(claims['staffNumber']),
+    role: roleFromClaims(claims),
+    mustChangePassword: claims['temporaryPassword'] === true || claims['mustChangePassword'] === true,
   };
-}
-
-function parseUser(user: Record<string, unknown>): AuthUser {
-  if (
-    typeof user['id'] !== 'string' ||
-    !user['id'].trim() ||
-    typeof user['email'] !== 'string' ||
-    typeof user['role'] !== 'string'
-  ) {
-    throw new Error('The authentication API returned invalid user details.');
-  }
-
-  return {
-    id: user['id'],
-    email: user['email'],
-    role: toDashboardRole(user['role']),
-    ...(typeof user['name'] === 'string' ? { name: user['name'] } : {}),
-  };
-}
-
-function toDashboardRole(role: string): UserRole {
-  switch (role.trim().toLowerCase()) {
-    case 'admin':
-    case 'administrator':
-      return 'Admin';
-    case 'doctor':
-      return 'Doctor';
-    case 'nurse':
-      return 'Nurse';
-    case 'pharmacist':
-      return 'Pharmacist';
-    case 'lab technician':
-    case 'lab_technician':
-    case 'lab-technician':
-    case 'lab':
-      return 'Lab_Technician';
-    default:
-      throw new Error(`The API role "${role}" does not have a configured HMS dashboard.`);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

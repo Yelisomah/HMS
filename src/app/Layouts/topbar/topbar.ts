@@ -1,30 +1,27 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { Component, EventEmitter, inject, Output } from '@angular/core';
 import { Router } from '@angular/router';
-import { AuthService, UserRole } from '../../Auth/auth.service';
+import { AuthService } from '../../Auth/auth.service';
 
 @Component({
-  imports: [],
   selector: 'app-topbar',
   templateUrl: './topbar.html',
 })
 export class Topbar {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
-  @Input({ required: true }) role: UserRole = 'Admin';
-  @Input() email = '';
+  readonly user = this.auth.user;
   @Output() menuToggle = new EventEmitter<void>();
 
+  get label(): string {
+    const u = this.user();
+    return u?.name || u?.staffNumber || u?.username || '';
+  }
+
   get initials(): string {
-    return this.email.slice(0, 1).toUpperCase() || this.role.slice(0, 1);
+    return this.label.slice(0, 1).toUpperCase() || '?';
   }
 
   signOut(): void {
-    this.auth.signOutFromApi().subscribe({
-      next: () => void this.router.navigateByUrl('/'),
-      error: () =>
-        void this.router.navigateByUrl('/', {
-          state: { authNotice: 'Signed out locally, but the server session could not be closed.' },
-        }),
-    });
+    this.auth.logout().subscribe(() => void this.router.navigateByUrl('/login'));
   }
 }

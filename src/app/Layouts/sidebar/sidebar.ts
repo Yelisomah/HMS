@@ -1,11 +1,13 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, computed, EventEmitter, inject, Input, Output } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { UserRole } from '../../Auth/auth.service';
+import { AuthService } from '../../Auth/auth.service';
 
 interface NavigationItem {
   label: string;
   path: string;
   icon: string;
+  adminOnly?: boolean;
+  hideForNurse?: boolean;
 }
 
 @Component({
@@ -14,42 +16,25 @@ interface NavigationItem {
   templateUrl: './sidebar.html',
 })
 export class Sidebar {
-  @Input({ required: true }) role: UserRole = 'Admin';
-  @Input({ required: true }) userId = '';
+  private readonly auth = inject(AuthService);
   @Input() open = false;
   @Output() closeMenu = new EventEmitter<void>();
 
-  readonly navigationItems: NavigationItem[] = [
+  private readonly items: NavigationItem[] = [
     { label: 'Overview', path: '', icon: '⌂' },
+    { label: 'Check-in queue', path: 'queue', icon: '▦' },
     { label: 'Patients', path: 'patients', icon: '♙' },
-    { label: 'Appointments', path: 'appointments', icon: '▦' },
-    { label: 'Wards and beds', path: 'wards', icon: '▥' },
-    { label: 'Medication round', path: 'medications', icon: '✚' },
-    { label: 'Laboratory', path: 'laboratory', icon: '⚗' },
-    { label: 'Pharmacy', path: 'pharmacy', icon: '℞' },
-    { label: 'Billing', path: 'billing', icon: '$' },
-    { label: 'Handover', path: 'handover', icon: '⇄' },
-    { label: 'Insurance claims', path: 'insurance', icon: '✓' },
-    { label: 'Staff', path: 'staff', icon: '♧' },
-    { label: 'Departments', path: 'departments', icon: '⊞' },
-    { label: 'Reports', path: 'reports', icon: '▤' },
-    { label: 'Audit log', path: 'audit', icon: '☰' },
-    { label: 'Access control', path: 'access', icon: '⚿' },
+    { label: 'Register patient', path: 'patients/new', icon: '＋' },
+    { label: 'Medical records', path: 'records', icon: '▤', hideForNurse: true },
+    { label: 'User management', path: 'admin', icon: '⚿', adminOnly: true },
+    { label: 'My account', path: 'account', icon: '☺' },
   ];
 
-  get visibleItems(): NavigationItem[] {
-    const allowed: Record<UserRole, string[]> = {
-      Admin: ['', 'patients', 'appointments', 'wards', 'laboratory', 'pharmacy', 'billing', 'insurance', 'staff', 'departments', 'reports', 'audit', 'access'],
-      Doctor: ['', 'patients', 'appointments', 'wards', 'laboratory'],
-      Nurse: ['', 'patients', 'wards', 'medications', 'handover', 'laboratory'],
-      Pharmacist: ['', 'patients', 'pharmacy'],
-      Lab_Technician: ['', 'patients', 'laboratory'],
-    };
-    return this.navigationItems.filter((item) => allowed[this.role].includes(item.path));
-  }
+  readonly visibleItems = computed(() =>
+    this.items.filter((i) => (!i.adminOnly || this.auth.isAdmin()) && (!i.hideForNurse || !this.auth.isNurse())),
+  );
 
   routeFor(path: string): string {
-    const dashboardPath = `/${encodeURIComponent(this.userId)}`;
-    return path ? `${dashboardPath}/${path}` : dashboardPath;
+    return path ? `/app/${path}` : '/app';
   }
 }

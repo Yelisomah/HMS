@@ -14,12 +14,12 @@
 
   <!-- <div class="sidebar-section-label">WORKSPACE</div> -->
   <nav class="sidebar-nav">
-    @for (item of visibleItems; track item.path) {
+    @for (item of visibleItems(); track item.path) {
       <a
         class="sidebar-link"
         [routerLink]="routeFor(item.path)"
         routerLinkActive="sidebar-link-active"
-        [routerLinkActiveOptions]="{ exact: item.path === '' }"
+        [routerLinkActiveOptions]="{ exact: item.path === '' || item.path === 'patients' }"
         (click)="closeMenu.emit()"
       >
         <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
