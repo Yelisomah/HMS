@@ -26,6 +26,7 @@ export class Sidebar {
   private readonly items: NavigationItem[] = [
     { label: 'Overview', path: '', icon: '⌂', roles: this.allRoles },
     { label: 'Check-in queue', path: 'queue', icon: '▦', roles: this.patientFlowRoles },
+    { label: 'Admissions', path: 'admissions', icon: '▥', roles: ['ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE'] },
     { label: 'Patients', path: 'patients', icon: '♙', roles: this.patientFlowRoles },
     { label: 'Register patient', path: 'patients/new', icon: '＋', roles: this.patientFlowRoles },
     { label: 'Medical records', path: 'records', icon: '▤', roles: this.recordRoles },

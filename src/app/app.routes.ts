@@ -20,6 +20,7 @@ export const routes: Routes = [
     children: [
       { path: '', canActivate: [roleGuard], data: { roles: SUPPORTED_ROLES }, loadComponent: () => import('./Dashboard/overview').then((m) => m.Overview) },
       { path: 'queue', canActivate: [roleGuard], data: { roles: PATIENT_FLOW_ROLES }, loadComponent: () => import('./Dashboard/queue').then((m) => m.Queue) },
+      { path: 'admissions', canActivate: [roleGuard], data: { roles: CLINICAL_ROLES }, loadComponent: () => import('./Dashboard/admissions').then((m) => m.Admissions) },
       { path: 'patients', canActivate: [roleGuard], data: { roles: PATIENT_FLOW_ROLES }, loadComponent: () => import('./Dashboard/patients').then((m) => m.Patients) },
       { path: 'patients/new', canActivate: [roleGuard], data: { roles: PATIENT_FLOW_ROLES }, loadComponent: () => import('./Dashboard/patient-register').then((m) => m.PatientRegister) },
       { path: 'patients/:ref', canActivate: [roleGuard], data: { roles: PATIENT_CHART_ROLES }, loadComponent: () => import('./Dashboard/patient-chart').then((m) => m.PatientChart) },

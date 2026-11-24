@@ -15,9 +15,9 @@ formats include `role`, `roles`, `authorities`, `scope`, `realm_access.roles`, a
 
 | Role | Access |
 | --- | --- |
-| `ADMIN` | All configured pages, including user management and medical records |
-| `DOCTOR`, `PHYSICIAN` | Patient flow, charts, notes, medical records, and account |
-| `NURSE` | Patient flow, charts, notes, and account; medical records are restricted |
+| `ADMIN` | All configured pages, including user management, admissions, and medical records |
+| `DOCTOR`, `PHYSICIAN` | Patient flow, admissions, charts, notes, medical records, and account |
+| `NURSE` | Patient flow, admissions, charts, notes, and account; medical records are restricted |
 | `OPD` | Queue, patient search/registration, a summary-only patient chart, overview, and account |
 | `PHARMACIST`, `LAB_TECHNICIAN` | Overview and account until role-specific APIs and screens are available |
 | Other roles | Denied until explicitly mapped |
@@ -40,5 +40,9 @@ every API request and protect clinical data and administrative actions.
   prepared to call `GET /api/admin/users`, returning an array of user-account objects. The
   backend must implement that endpoint before the directory can load all users; until then,
   the page reports the API error instead of presenting a partial list as complete.
+- Admissions currently uses the existing patient search/detail APIs, an in-memory admission
+  store, and a clearly marked sample bed catalog. Admission and discharge changes are lost on
+  reload. No admission data is written to browser storage; backend admission and bed endpoints
+  are required to make the workflow persistent.
 - Pharmacy, laboratory, admissions, ward/bed, appointments, billing, and reporting workflows
   need backend API contracts and are not implemented by the current endpoint set.
