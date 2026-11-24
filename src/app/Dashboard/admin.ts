@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { UserAccountResponse } from '../core/api/api.models';
 import { errorMessage } from '../core/api/errors';
@@ -7,10 +7,6 @@ import { clean } from '../shared/ui';
 
 const req = (max: number) => new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(max)] });
 
-/**
- * The backend has no "list users" endpoint, so this page acts on user IDs. Accounts invited in this
- * browser session are listed for convenience; any other user is reached by pasting their ID.
- */
 @Component({
   selector: 'app-admin',
   imports: [ReactiveFormsModule],
@@ -28,10 +24,42 @@ const req = (max: number) => new FormControl('', { nonNullable: true, validators
       <label>Last name *<input formControlName="lastName" /></label>
       <label>Email *<input type="email" formControlName="email" /></label>
       <label>Phone number *<input type="tel" formControlName="phoneNumber" /></label>
-      <label>Role *<input formControlName="role" list="roles" placeholder="e.g. DOCTOR" /><datalist id="roles"><option value="ADMIN"></option><option value="DOCTOR"></option><option value="NURSE"></option></datalist></label>
+      <label>Role *<input formControlName="role" list="roles" placeholder="e.g. DOCTOR" /><datalist id="roles"><option value="ADMIN"></option><option value="DOCTOR"></option><option value="NURSE"></option><option value="PHARMACIST"></option><option value="LAB_TECHNICIAN"></option><option value="OPD"></option></datalist></label>
       <label>Staff number<input formControlName="staffNumber" placeholder="Leave blank to auto-generate" /></label>
       <div class="wide"><button class="primary-button inline-button" type="submit" [disabled]="busy()">{{ busy() ? 'Sending…' : 'Send invitation' }}</button></div>
     </form>
+
+    <section class="panel-block">
+      <div class="section-head">
+        <h2>Staff directory</h2>
+        <button class="mini ghost-btn" type="button" (click)="loadUsers()" [disabled]="loadingUsers()">
+          {{ loadingUsers() ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
+      <p class="muted">The directory uses the configured GET /api/admin/users endpoint.</p>
+      @if (usersError()) { <p class="form-alert" role="alert">{{ usersError() }}</p> }
+      @else if (loadingUsers()) { <p class="loading-message" role="status">Loading staff accounts…</p> }
+      @else if (!users().length) { <p class="muted">No staff accounts were returned.</p> }
+      @else {
+        <label>Filter accounts<input type="search" [value]="userSearch()" (input)="setUserSearch($any($event.target).value)" placeholder="Name, staff number, role, or ID" /></label>
+        @if (!filteredUsers().length) { <p class="muted">No accounts match this filter.</p> }
+        @else {
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Username</th><th>Email</th><th>Staff no.</th><th>Role</th><th>Status</th><th>User ID</th><th></th></tr></thead>
+              <tbody>@for (u of filteredUsers(); track u.userId) {
+                <tr>
+                  <td>{{ u.username || '—' }}</td><td>{{ u.email || '—' }}</td><td>{{ u.staffNumber || '—' }}</td>
+                  <td>{{ u.role || '—' }}</td><td>{{ u.enabled === undefined ? 'Unknown' : u.enabled ? 'Enabled' : 'Disabled' }}</td>
+                  <td><code>{{ u.userId }}</code></td>
+                  <td><button class="text-button" type="button" (click)="selectUser(u)">Manage</button></td>
+                </tr>
+              }</tbody>
+            </table>
+          </div>
+        }
+      }
+    </section>
 
     <section class="panel-block">
       <h2>Manage an existing user</h2>
@@ -48,16 +76,6 @@ const req = (max: number) => new FormControl('', { nonNullable: true, validators
       </div>
     </section>
 
-    @if (recent().length) {
-      <section class="panel-block"><h2>Invited this session</h2>
-        <div class="table-wrap" style="margin-top:0"><table>
-          <thead><tr><th>Username</th><th>Staff no.</th><th>Role</th><th>User ID</th><th></th></tr></thead>
-          <tbody>@for (u of recent(); track u.userId) {
-            <tr><td>{{ u.username }}</td><td>{{ u.staffNumber || '—' }}</td><td>{{ u.role }}</td><td><code>{{ u.userId }}</code></td>
-              <td><button class="text-button" type="button" (click)="manage.controls.userId.setValue(u.userId)">Manage</button></td></tr>
-          }</tbody></table></div>
-      </section>
-    }
   </section>`,
 })
 export class Admin {
@@ -66,7 +84,18 @@ export class Admin {
   readonly error = signal('');
   readonly notice = signal('');
   readonly tempPassword = signal('');
-  readonly recent = signal<UserAccountResponse[]>([]);
+  readonly users = signal<UserAccountResponse[]>([]);
+  readonly loadingUsers = signal(true);
+  readonly usersError = signal('');
+  readonly userSearch = signal('');
+  readonly filteredUsers = computed(() => {
+    const query = this.userSearch().trim().toLowerCase();
+    if (!query) return this.users();
+    return this.users().filter((user) =>
+      [user.username, user.email, user.staffNumber, user.role, user.userId]
+        .some((value) => value?.toLowerCase().includes(query)),
+    );
+  });
   readonly invite = new FormGroup({
     username: req(50), firstName: req(100), lastName: req(100),
     email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email, Validators.maxLength(255)] }),
@@ -78,18 +107,46 @@ export class Admin {
   });
   readonly id = () => this.manage.controls.userId.value.trim();
 
+  constructor() { this.loadUsers(); }
+
   private begin(): void { this.busy.set(true); this.error.set(''); this.notice.set(''); this.tempPassword.set(''); }
   private fail = (e: unknown) => { this.error.set(errorMessage(e)); this.busy.set(false); };
+
+  setUserSearch(value: string): void { this.userSearch.set(value); }
+
+  selectUser(user: UserAccountResponse): void {
+    this.manage.patchValue({ userId: user.userId, role: user.role ?? '' });
+  }
+
+  loadUsers(): void {
+    this.loadingUsers.set(true);
+    this.usersError.set('');
+    this.api.listUsers().subscribe({
+      next: (users) => {
+        if (!Array.isArray(users)) {
+          this.usersError.set('The staff directory endpoint must return an array of user accounts.');
+          this.loadingUsers.set(false);
+          return;
+        }
+        this.users.set(users);
+        this.loadingUsers.set(false);
+      },
+      error: (e: unknown) => {
+        this.usersError.set(`Could not load the staff directory. The backend must implement GET /api/admin/users. ${errorMessage(e)}`);
+        this.loadingUsers.set(false);
+      },
+    });
+  }
 
   sendInvite(): void {
     if (this.invite.invalid) return this.invite.markAllAsTouched();
     this.begin();
     this.api.invite(clean(this.invite.getRawValue())).subscribe({
       next: (u) => {
-        this.recent.update((l) => [u, ...l]);
         this.notice.set(`Invitation sent to ${u.username ?? 'the new user'}.`);
         this.invite.reset();
         this.busy.set(false);
+        this.loadUsers();
       },
       error: this.fail,
     });
@@ -100,7 +157,7 @@ export class Admin {
     this.begin();
     const call = { unlock: this.api.unlockUser, reactivate: this.api.reactivateUser, deactivate: this.api.deactivateUser }[kind];
     call(this.id()).subscribe({
-      next: (r) => { this.notice.set(r?.message || 'Done.'); this.busy.set(false); },
+      next: (r) => { this.notice.set(r?.message || 'Done.'); this.busy.set(false); this.loadUsers(); },
       error: this.fail,
     });
   }
@@ -108,7 +165,7 @@ export class Admin {
   changeRole(): void {
     this.begin();
     this.api.changeRole(this.id(), this.manage.controls.role.value.trim()).subscribe({
-      next: (u) => { this.notice.set(`Role changed to ${u.role ?? 'the new role'}.`); this.busy.set(false); },
+      next: (u) => { this.notice.set(`Role changed to ${u.role ?? 'the new role'}.`); this.busy.set(false); this.loadUsers(); },
       error: this.fail,
     });
   }

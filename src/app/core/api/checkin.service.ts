@@ -1,40 +1,74 @@
 import { inject, Injectable } from '@angular/core';
-import { Observable, catchError, forkJoin, map, of } from 'rxjs';
-import { AuthService } from '../../Auth/auth.service';
+import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { errorMessage } from './errors';
 import { CheckInEntity, CheckInResponse } from './api.models';
 import { HmsApi } from './hms-api';
 
 export interface ActiveCheckIn extends CheckInResponse {
-  /** Database ID of the check-in. null when the API did not expose it (see below). */
   checkInId: number | null;
+  checkInIdError?: string;
 }
 
-/**
- * GET /api/checkin/active returns CheckInResponseDto, which has no check-in ID, yet vitals, SOAP notes
- * and check-out all need one. GET /api/checkin/staff/{staffId} does include IDs, so IDs are matched in
- * from the signed-in user's own check-ins. Anything left unmatched can be entered by hand in the UI.
- * Adding `id` to CheckInResponseDto on the backend would make this lookup unnecessary.
- */
 @Injectable({ providedIn: 'root' })
 export class CheckInService {
   private readonly api = inject(HmsApi);
-  private readonly auth = inject(AuthService);
 
   active(): Observable<ActiveCheckIn[]> {
-    const staffId = this.auth.user()?.id;
-    const mine$: Observable<CheckInEntity[]> = staffId
-      ? this.api.checkInsByStaff(staffId).pipe(catchError(() => of([] as CheckInEntity[])))
-      : of([]);
+    return this.api.activeCheckIns().pipe(
+      switchMap((active) => {
+        const registrations = [...new Set((active ?? []).map((item) => item.registrationNumber).filter(Boolean))];
+        if (!registrations.length) return of((active ?? []).map((item) => ({ ...item, checkInId: null })));
 
-    return forkJoin([this.api.activeCheckIns(), mine$]).pipe(
-      map(([active, mine]) =>
-        (active ?? []).map((a) => {
-          const match = mine.find(
-            (m) => m.patient?.registrationNumber === a.registrationNumber && m.status === a.status,
-          ) ?? mine.find((m) => m.patient?.registrationNumber === a.registrationNumber);
-          return { ...a, checkInId: match?.id ?? null };
-        }),
-      ),
+        return forkJoin(registrations.map((registrationNumber) =>
+          this.api.patientByReg(registrationNumber).pipe(
+            map((response) => ({
+              registrationNumber,
+              checkIns: response.data?.checkIns ?? [],
+              error: response.data?.checkIns ? '' : 'The patient response did not include check-in IDs.',
+            })),
+            catchError((error: unknown) => of({
+              registrationNumber,
+              checkIns: [] as CheckInEntity[],
+              error: errorMessage(error, 'Could not resolve this check-in ID.'),
+            })),
+          ),
+        )).pipe(
+          map((patientDetails) => {
+            const byRegistration = new Map(patientDetails.map((details) => [details.registrationNumber, details]));
+            return (active ?? []).map((item) => {
+              const details = byRegistration.get(item.registrationNumber);
+              const candidates = (details?.checkIns ?? []).filter((checkIn) =>
+                checkIn.status === item.status &&
+                (!checkIn.patient?.registrationNumber || checkIn.patient.registrationNumber === item.registrationNumber),
+              );
+              const match = matchingCheckIn(candidates, item.checkInTime);
+              return {
+                ...item,
+                checkInId: match?.id ?? null,
+                ...(match ? {} : {
+                  checkInIdError: details?.error || (candidates.length > 1
+                    ? 'More than one check-in matched this visit; the ID could not be resolved safely.'
+                    : 'No matching check-in ID was returned for this active visit.'),
+                }),
+              };
+            });
+          }),
+        );
+      }),
     );
   }
+}
+
+function matchingCheckIn(candidates: CheckInEntity[], checkInTime?: string): CheckInEntity | undefined {
+  if (!candidates.length) return undefined;
+  if (checkInTime) {
+    const activeTime = Date.parse(checkInTime);
+    const exact = candidates.find((candidate) => {
+      if (!candidate.checkInTime) return false;
+      const candidateTime = Date.parse(candidate.checkInTime);
+      return Number.isFinite(activeTime) && Number.isFinite(candidateTime) && Math.abs(candidateTime - activeTime) < 1000;
+    });
+    if (exact) return exact;
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
 }

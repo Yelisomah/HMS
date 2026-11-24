@@ -1,8 +1,9 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Observable, catchError, of, switchMap } from 'rxjs';
+import { Observable, catchError, switchMap, throwError } from 'rxjs';
+import { AuthService } from '../Auth/auth.service';
 import { ActiveCheckIn, CheckInService } from '../core/api/checkin.service';
 import { PatientFull } from '../core/api/api.models';
 import { errorMessage } from '../core/api/errors';
@@ -18,7 +19,7 @@ type Tab = (typeof TABS)[number];
 
 @Component({
   selector: 'app-patient-chart',
-  imports: [DatePipe, RouterLink, ReactiveFormsModule, VitalsPanel, HistoryPanel, NotesPanel, RecordsPanel],
+  imports: [DatePipe, RouterLink, VitalsPanel, HistoryPanel, NotesPanel, RecordsPanel],
   template: `
   <section class="dashboard-view">
     <a class="back-link" routerLink="/app/patients">← All patients</a>
@@ -42,7 +43,7 @@ type Tab = (typeof TABS)[number];
       </header>
 
       <nav class="tabs" role="tablist">
-        @for (t of tabs; track t) { <button role="tab" type="button" [class.on]="tab() === t" [attr.aria-selected]="tab() === t" (click)="tab.set(t)">{{ t }}</button> }
+        @for (t of tabs(); track t) { <button role="tab" type="button" [class.on]="tab() === t" [attr.aria-selected]="tab() === t" (click)="tab.set(t)">{{ t }}</button> }
       </nav>
       @if (notice()) { <p class="notice" role="status">{{ notice() }}</p> }
       @if (actionError()) { <p class="form-alert" role="alert">{{ actionError() }}</p> }
@@ -67,18 +68,16 @@ type Tab = (typeof TABS)[number];
                   <dt>Status</dt><dd><span class="pill pill-{{ tone(c.status) }}">{{ pretty(c.status) }}</span></dd>
                   <dt>Checked in</dt><dd>{{ c.checkInTime | date: 'd MMM, HH:mm' }}</dd>
                   <dt>Queue position</dt><dd>{{ c.queuePosition ?? '—' }}</dd>
-                  <dt>Check-in ID</dt><dd>@if (checkInId(); as id) { {{ id }} } @else { <span class="muted">unknown — enter it below</span> }</dd>
+                  <dt>Check-in ID</dt><dd>@if (checkInId(); as id) { {{ id }} } @else { <span class="muted">unavailable</span> }</dd>
                 </dl>
                 @if (!checkInId()) {
-                  <form class="form-row" style="margin-top:12px" (submit)="$event.preventDefault(); useManualId()">
-                    <label>Check-in ID<input type="number" min="1" [formControl]="manualId" /></label>
-                    <button class="mini" type="submit" [disabled]="!manualId.value">Use</button>
-                  </form>
-                  <p class="muted">The queue endpoint does not return IDs for check-ins made by other staff. Ask whoever checked the patient in, or enter it from the vitals sheet.</p>
+                  <p class="form-alert" role="alert">{{ checkIn()?.checkInIdError || 'The API did not return this visit’s check-in ID. Refresh the queue or contact support.' }}</p>
                 }
                 <div class="actions" style="margin-top:14px">
-                  <button class="mini" type="button" (click)="tab.set('Vitals')">Record vitals</button>
-                  <button class="mini" type="button" (click)="tab.set('Notes')">SOAP note</button>
+                  @if (canUseClinicalTabs()) {
+                    <button class="mini" type="button" (click)="tab.set('Vitals')">Record vitals</button>
+                    <button class="mini" type="button" (click)="tab.set('Notes')">SOAP note</button>
+                  }
                   <button class="mini ghost" type="button" [disabled]="!checkInId() || busy()" (click)="checkOut()">Check out</button>
                 </div>
               } @else {
@@ -88,10 +87,10 @@ type Tab = (typeof TABS)[number];
             </section>
           </div>
         }
-        @case ('Vitals') { <app-vitals-panel [reg]="p.registrationNumber ?? ''" [checkInId]="checkInId()" /> }
-        @case ('History') { <app-history-panel [reg]="p.registrationNumber ?? ''" /> }
-        @case ('Notes') { <app-notes-panel [reg]="p.registrationNumber ?? ''" [checkInId]="checkInId()" /> }
-        @case ('Records') { <app-records-panel [patientId]="p.id" /> }
+        @case ('Vitals') { @if (canUseClinicalTabs()) { <app-vitals-panel [reg]="p.registrationNumber ?? ''" [checkInId]="checkInId()" /> } }
+        @case ('History') { @if (canUseClinicalTabs()) { <app-history-panel [reg]="p.registrationNumber ?? ''" /> } }
+        @case ('Notes') { @if (canUseClinicalTabs()) { <app-notes-panel [reg]="p.registrationNumber ?? ''" [checkInId]="checkInId()" /> } }
+        @case ('Records') { @if (canViewRecords()) { <app-records-panel [patientId]="p.id" /> } }
       }
     }
   </section>`,
@@ -99,9 +98,15 @@ type Tab = (typeof TABS)[number];
 export class PatientChart {
   private readonly api = inject(HmsApi);
   private readonly checkins = inject(CheckInService);
+  private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
 
-  readonly tabs = TABS;
+  readonly tabs = computed(() => {
+    if (this.auth.hasAnyRole('OPD')) return ['Summary'] as const;
+    return this.canViewRecords() ? TABS : TABS.filter((tab) => tab !== 'Records');
+  });
+  readonly canUseClinicalTabs = computed(() => this.auth.hasAnyRole('ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE'));
+  readonly canViewRecords = computed(() => this.auth.hasAnyRole('ADMIN', 'DOCTOR', 'PHYSICIAN'));
   readonly tab = signal<Tab>('Summary');
   readonly patient = signal<PatientFull | null>(null);
   readonly loading = signal(true);
@@ -110,7 +115,6 @@ export class PatientChart {
   readonly actionError = signal('');
   readonly busy = signal(false);
   readonly checkIn = signal<ActiveCheckIn | null>(null);
-  readonly manualId = new FormControl<number | null>(null);
   readonly tone = tone;
   readonly pretty = pretty;
   readonly name = computed(() => fullName(this.patient()) || 'Patient');
@@ -127,11 +131,13 @@ export class PatientChart {
     const first$ = byReg ? this.api.patientByReg(ref) : this.api.patientById(ref);
     const second = byReg ? this.api.patientById(ref) : this.api.patientByReg(ref);
     first$
-      .pipe(catchError(() => second))
+      .pipe(catchError((error: unknown) =>
+        error instanceof HttpErrorResponse && error.status === 404 ? second : throwError(() => error),
+      ))
       .pipe(
         switchMap((res) => {
           this.patient.set(res?.data ?? null);
-          return this.checkins.active().pipe(catchError(() => of([] as ActiveCheckIn[])));
+          return this.checkins.active();
         }),
       )
       .subscribe({
@@ -144,12 +150,6 @@ export class PatientChart {
         },
         error: (e: unknown) => { this.error.set(errorMessage(e, 'That patient was not found.')); this.loading.set(false); },
       });
-  }
-
-  useManualId(): void {
-    const id = this.manualId.value;
-    const c = this.checkIn();
-    if (id && c) this.checkIn.set({ ...c, checkInId: id });
   }
 
   doCheckIn(): void {

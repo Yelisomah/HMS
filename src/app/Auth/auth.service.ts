@@ -13,7 +13,9 @@ export interface SessionUser {
   username: string;
   name: string;
   staffNumber: string;
-  /** Upper-cased role name without any ROLE_ prefix, e.g. ADMIN, DOCTOR, NURSE. */
+  /** All normalized roles from the token. */
+  roles: readonly string[];
+  /** Primary normalized role for display. */
   role: string;
   mustChangePassword: boolean;
 }
@@ -31,17 +33,19 @@ export class AuthService {
     const token = this.token();
     return token ? userFromClaims(decodeJwt(token)) : null;
   });
-  readonly isAdmin = computed(() => hasRole(this.user()?.role, 'ADMIN'));
-  readonly isDoctor = computed(() => hasRole(this.user()?.role, 'DOCTOR', 'PHYSICIAN'));
-  readonly isNurse = computed(() => hasRole(this.user()?.role, 'NURSE'));
+  readonly isAdmin = computed(() => hasRole(this.user()?.roles, 'ADMIN'));
+  readonly isDoctor = computed(() => hasRole(this.user()?.roles, 'DOCTOR', 'PHYSICIAN'));
+  readonly isNurse = computed(() => hasRole(this.user()?.roles, 'NURSE'));
 
   login(credentials: LoginRequest): Observable<SessionUser> {
     return this.api.post<LoginResponse>(ENDPOINTS.auth.login, credentials).pipe(
       map((res) => {
         if (!res?.accessToken) throw new Error(res?.message || 'Sign-in failed. Check your details and try again.');
+        const user = userFromClaims(decodeJwt(res.accessToken));
+        if (!user.id || !user.roles.length) {
+          throw new Error('The server returned a token without a readable user ID and role.');
+        }
         this.saveTokens(res.accessToken, res.refreshToken);
-        const user = this.user();
-        if (!user) throw new Error('The server returned a session this app cannot read.');
         return user;
       }),
     );
@@ -88,6 +92,10 @@ export class AuthService {
     return !!sessionStorage.getItem(REFRESH_KEY);
   }
 
+  hasAnyRole(...roles: string[]): boolean {
+    return hasRole(this.user()?.roles, ...roles);
+  }
+
   /** True when there is a token that is unexpired, or that can be renewed. */
   isSignedIn(): boolean {
     const token = this.token();
@@ -110,15 +118,18 @@ export class AuthService {
   }
 }
 
-export function hasRole(role: string | undefined, ...names: string[]): boolean {
-  return !!role && names.some((n) => role.includes(n));
+export function hasRole(roles: string | readonly string[] | undefined, ...names: string[]): boolean {
+  const actual = (typeof roles === 'string' ? [roles] : roles ?? []).map(normalizeRole);
+  return names.some((name) => actual.includes(normalizeRole(name)));
 }
 
 export function decodeJwt(token: string): Record<string, unknown> {
   try {
     const payload = token.split('.')[1] ?? '';
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
     const json = decodeURIComponent(
-      atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+      atob(padded)
         .split('')
         .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
         .join(''),
@@ -134,21 +145,57 @@ function str(value: unknown): string {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 }
 
-function roleFromClaims(claims: Record<string, unknown>): string {
-  const raw = claims['role'] ?? claims['roles'] ?? claims['authorities'] ?? claims['scope'] ?? '';
-  const first = Array.isArray(raw) ? raw[0] : raw;
-  const value = typeof first === 'object' && first ? ((first as Record<string, unknown>)['authority'] ?? (first as Record<string, unknown>)['name']) : first;
-  return str(value).split(/[ ,]/)[0].replace(/^ROLE_/i, '').toUpperCase();
+function normalizeRole(role: string): string {
+  return role.trim().replace(/^ROLE_/i, '').replace(/[\s-]+/g, '_').toUpperCase();
+}
+
+export function rolesFromClaims(claims: Record<string, unknown>): string[] {
+  const roles: string[] = [];
+  const add = (value: unknown, splitString = false): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => add(item));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      const item = value as Record<string, unknown>;
+      add(item['authority'] ?? item['name']);
+      return;
+    }
+    if (typeof value !== 'string') return;
+    const values = splitString ? value.split(/[,\s]+/) : [value];
+    for (const item of values) {
+      const role = normalizeRole(item);
+      if (role && !roles.includes(role)) roles.push(role);
+    }
+  };
+
+  add(claims['role']);
+  add(claims['roles'], true);
+  add(claims['authorities'], true);
+  add(claims['authority'], true);
+  add(claims['scope'], true);
+
+  const realmAccess = claims['realm_access'];
+  if (realmAccess && typeof realmAccess === 'object') add((realmAccess as Record<string, unknown>)['roles']);
+  const resourceAccess = claims['resource_access'];
+  if (resourceAccess && typeof resourceAccess === 'object') {
+    for (const resource of Object.values(resourceAccess as Record<string, unknown>)) {
+      if (resource && typeof resource === 'object') add((resource as Record<string, unknown>)['roles']);
+    }
+  }
+  return roles;
 }
 
 function userFromClaims(claims: Record<string, unknown>): SessionUser {
   const username = str(claims['username'] ?? claims['preferred_username'] ?? claims['sub']);
+  const roles = rolesFromClaims(claims);
   return {
     id: str(claims['userId'] ?? claims['uid'] ?? claims['id'] ?? claims['sub']),
     username,
     name: str(claims['name'] ?? claims['fullName']) || username,
     staffNumber: str(claims['staffNumber']),
-    role: roleFromClaims(claims),
+    roles,
+    role: roles[0] ?? '',
     mustChangePassword: claims['temporaryPassword'] === true || claims['mustChangePassword'] === true,
   };
 }

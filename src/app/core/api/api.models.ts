@@ -13,7 +13,7 @@ export interface InviteUserRequest {
 }
 export interface UserAccountResponse {
   userId: string; username?: string; staffNumber?: string; role?: string;
-  enabled?: boolean; deactivatedAt?: string;
+  email?: string; enabled?: boolean; deactivatedAt?: string;
 }
 
 export interface PatientRegistrationRequest {
@@ -39,6 +39,7 @@ export interface PatientFull {
   maritalStatus?: string; occupation?: string; religion?: string; nationality?: string; address?: string;
   city?: string; town?: string; nextOfKinName?: string; nextOfKinRelationship?: string;
   nextOfKinPhoneNumber?: string; nhisNumber?: string; deceased?: boolean; admitted?: boolean;
+  checkIns?: CheckInEntity[];
   [k: string]: unknown;
 }
 export interface PatientResponseMessage { status?: string; message?: string; data?: PatientFull }

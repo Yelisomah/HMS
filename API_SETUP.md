@@ -1,43 +1,44 @@
-# API integration
+# HMS API integration
 
-## Demo mode
+The Angular application calls the HMS backend at
+`https://healthmanagementsystem-a1l5.onrender.com`. The root URL and all API paths are
+centralized in `src/app/core/api/api.config.ts`. The current app does not have a mock-data
+mode. Requests use bearer access tokens, with refresh handled by the HTTP interceptor.
 
-The app starts with `USE_MOCK_DATA` enabled in
-`src/app/core/api/api.config.ts`. In this mode, the dashboard uses its seeded
-local data and sign-in/sign-out do not call the ticketing API. Sign in with an
-email from the seeded staff list in `src/app/core/hms.store.ts` and any password
-of at least eight characters. Demo changes are stored in browser local storage.
+The backend's published OpenAPI document is
+<https://healthmanagementsystem-a1l5.onrender.com/v3/api-docs>. Authentication responses
+must include a JWT access token with a user ID and one or more role claims. Supported claim
+formats include `role`, `roles`, `authorities`, `scope`, `realm_access.roles`, and
+`resource_access.*.roles`.
 
-Set `USE_MOCK_DATA` to `false` only when you want to use the configured API.
+## Current frontend role access
 
-The authentication service is configured for the Support Ticket API described at
-<https://ticketing.stakcloud.com/docs/api>. The API base URL and endpoints are
-centralized in `src/app/core/api/api.config.ts`.
+| Role | Access |
+| --- | --- |
+| `ADMIN` | All configured pages, including user management and medical records |
+| `DOCTOR`, `PHYSICIAN` | Patient flow, charts, notes, medical records, and account |
+| `NURSE` | Patient flow, charts, notes, and account; medical records are restricted |
+| `OPD` | Queue, patient search/registration, a summary-only patient chart, overview, and account |
+| `PHARMACIST`, `LAB_TECHNICIAN` | Overview and account until role-specific APIs and screens are available |
+| Other roles | Denied until explicitly mapped |
 
-## Authentication endpoints
+These are client-side navigation controls only. The backend must enforce authorization for
+every API request and protect clinical data and administrative actions.
 
-| Feature | Method and path | Contract |
-| --- | --- | --- |
-| Sign in | `POST /login` | Request `{ "email": "...", "password": "..." }`; response `{ "access_token": "...", "user": { "id": "...", "name": "...", "email": "...", "role": "..." } }` |
-| Current user | `GET /user` | Response `{ "user": { ... } }` |
-| Sign out | `POST /logout` | Response `{ "message": "Logged out successfully" }` |
+## Endpoint notes
 
-The login endpoint requires passwords to contain at least eight characters.
-The returned `access_token` is sent as a bearer token on authenticated
-requests. The application maps the API's `admin` role to its Administrator
-dashboard. Other roles must have a matching HMS dashboard; unknown roles are
-rejected rather than assigned another role's access.
-After login, the dashboard URL uses the authenticated user's ID as its path,
-for example `https://app.example.com/42`. Dashboard sections remain nested
-under that ID (for example `/42/patients`), and the route guard redirects
-requests for a different user's ID back to the signed-in user's dashboard.
-
-The documented API does not provide a password-reset endpoint. The reset page
-displays that limitation instead of calling an undocumented URL.
-
-The dashboard and hospital-resource URLs in `api.config.ts` are placeholders
-until the hospital data API contract is available. `ApiService` provides
-typed `get`, `post`, `put`, `patch`, and `delete` methods, and
-`HospitalDataService` provides the initial hospital-resource methods. The
-backend must authenticate and authorize every protected request; Angular
-route guards are only client-side navigation controls.
+- Login: `POST /api/auth/login`; refresh: `POST /api/auth/refresh`; logout:
+  `POST /api/auth/logout`.
+- Password flows: `POST /api/auth/forgot-password`, `/api/auth/reset-password`, and
+  `/api/auth/change-password`.
+- Patients, check-ins, vitals, medical history, SOAP notes, and medical records use the
+  routes listed under `ENDPOINTS` in `api.config.ts`.
+- `GET /api/checkin/active` does not return check-in IDs. The UI resolves IDs from the
+  documented patient `checkIns` collection so all active visits can use vitals, notes, and
+  checkout, regardless of which staff member checked the patient in.
+- The backend OpenAPI document currently has no user-list endpoint. The admin directory is
+  prepared to call `GET /api/admin/users`, returning an array of user-account objects. The
+  backend must implement that endpoint before the directory can load all users; until then,
+  the page reports the API error instead of presenting a partial list as complete.
+- Pharmacy, laboratory, admissions, ward/bed, appointments, billing, and reporting workflows
+  need backend API contracts and are not implemented by the current endpoint set.

@@ -1,0 +1,1 @@
+{"root":["./src/app/app.spec.ts","./src/app/auth/auth.service.spec.ts","./src/app/core/api/auth.interceptor.spec.ts","./src/app/core/api/checkin.service.spec.ts","./src/app/core/api/errors.spec.ts"],"version":"6.0.3"}

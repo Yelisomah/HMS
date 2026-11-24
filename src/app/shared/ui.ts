@@ -1,4 +1,5 @@
 import { Component, Input } from '@angular/core';
+import { __decorate } from "tslib";
 
 const TONES: Record<string, string> = {
   WAITING: 'amber', IN_PROGRESS: 'blue', DISCHARGED: 'green',

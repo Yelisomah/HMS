@@ -6,8 +6,7 @@ interface NavigationItem {
   label: string;
   path: string;
   icon: string;
-  adminOnly?: boolean;
-  hideForNurse?: boolean;
+  roles: readonly string[];
 }
 
 @Component({
@@ -20,18 +19,22 @@ export class Sidebar {
   @Input() open = false;
   @Output() closeMenu = new EventEmitter<void>();
 
+  private readonly allRoles = ['ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE', 'PHARMACIST', 'LAB_TECHNICIAN', 'OPD'] as const;
+  private readonly patientFlowRoles = ['ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE', 'OPD'] as const;
+  private readonly recordRoles = ['ADMIN', 'DOCTOR', 'PHYSICIAN'] as const;
+
   private readonly items: NavigationItem[] = [
-    { label: 'Overview', path: '', icon: '⌂' },
-    { label: 'Check-in queue', path: 'queue', icon: '▦' },
-    { label: 'Patients', path: 'patients', icon: '♙' },
-    { label: 'Register patient', path: 'patients/new', icon: '＋' },
-    { label: 'Medical records', path: 'records', icon: '▤', hideForNurse: true },
-    { label: 'User management', path: 'admin', icon: '⚿', adminOnly: true },
-    { label: 'My account', path: 'account', icon: '☺' },
+    { label: 'Overview', path: '', icon: '⌂', roles: this.allRoles },
+    { label: 'Check-in queue', path: 'queue', icon: '▦', roles: this.patientFlowRoles },
+    { label: 'Patients', path: 'patients', icon: '♙', roles: this.patientFlowRoles },
+    { label: 'Register patient', path: 'patients/new', icon: '＋', roles: this.patientFlowRoles },
+    { label: 'Medical records', path: 'records', icon: '▤', roles: this.recordRoles },
+    { label: 'User management', path: 'admin', icon: '⚿', roles: ['ADMIN'] },
+    { label: 'My account', path: 'account', icon: '☺', roles: this.allRoles },
   ];
 
   readonly visibleItems = computed(() =>
-    this.items.filter((i) => (!i.adminOnly || this.auth.isAdmin()) && (!i.hideForNurse || !this.auth.isNurse())),
+    this.items.filter((item) => this.auth.hasAnyRole(...item.roles)),
   );
 
   routeFor(path: string): string {

@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, effect, input, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { finalize } from 'rxjs';
 import { LatestVitals, TrendResponse, VitalsRequest } from '../core/api/api.models';
 import { errorMessage } from '../core/api/errors';
 import { HmsApi } from '../core/api/hms-api';
@@ -34,7 +35,7 @@ const num = () => new FormControl<number | null>(null, { validators: [Validators
     <section class="panel-block">
       <h2>Record vitals</h2>
       @if (!checkInId()) {
-        <p class="muted">Vitals are recorded against an active check-in. Check the patient in (and enter the check-in ID on the Summary tab if it is not shown) to enable this form.</p>
+        <p class="muted">Vitals are recorded against an active check-in. The visit ID must be returned by the patient’s check-in details before this form can be used.</p>
       } @else {
         <form class="grid-form compact" [formGroup]="form" (ngSubmit)="save(false)">
           <label>Temp (°C)<input type="number" step="0.1" formControlName="temperatureC" /></label>
@@ -61,7 +62,9 @@ const num = () => new FormControl<number | null>(null, { validators: [Validators
 
   <section class="panel-block" style="margin-top:16px">
     <h2>Trend</h2>
-    @if (trend(); as t) {
+    @if (loadError()) {
+      <p class="form-alert" role="alert">{{ loadError() }}</p>
+    } @else if (trend(); as t) {
       @if (!t.readingCount) { <p class="muted">{{ t.message || 'No readings in this period.' }}</p> }
       @else {
         <div class="spark-row" style="margin-top:0">
@@ -93,6 +96,7 @@ export class VitalsPanel {
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly error = signal('');
+  readonly loadError = signal('');
   readonly message = signal('');
   readonly warnings = signal<string[]>([]);
 
@@ -117,8 +121,18 @@ export class VitalsPanel {
 
   private load(reg: string): void {
     this.loading.set(true);
-    this.api.latestVitals(reg).subscribe({ next: (r) => this.latest.set(r), error: () => this.latest.set(null), complete: () => this.loading.set(false) });
-    this.api.vitalsTrend(reg).subscribe({ next: (r) => this.trend.set(r), error: () => this.trend.set(null) });
+    this.loadError.set('');
+    this.api.latestVitals(reg).pipe(finalize(() => this.loading.set(false))).subscribe({
+      next: (r) => this.latest.set(r),
+      error: (e: unknown) => this.latest.set({ found: false, message: errorMessage(e, 'Latest vitals could not be loaded.') }),
+    });
+    this.api.vitalsTrend(reg).subscribe({
+      next: (r) => this.trend.set(r),
+      error: (e: unknown) => {
+        this.trend.set(null);
+        this.loadError.set(errorMessage(e, 'Vitals trend could not be loaded.'));
+      },
+    });
   }
 
   save(confirm: boolean): void {

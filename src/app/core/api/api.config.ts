@@ -3,13 +3,8 @@ import { InjectionToken } from '@angular/core';
 /**
  * Base URL for API calls.
  *
- * An empty string means "same origin": the browser calls `/api/...` on whatever host serves the
- * app. In development `proxy.conf.json` forwards that to the backend, and in production nginx
- * (see `nginx.conf.template`) does the same. That keeps CORS out of the picture entirely.
- *
- * To call the backend directly instead, set this to
- * 'https://healthmanagementsystem-a1l5.onrender.com' — the backend must then allow your
- * frontend origin through CORS.
+ * The current deployment calls the HMS API directly. The backend must allow this app's origin
+ * through CORS. Override API_BASE_URL in an environment-specific provider when deploying elsewhere.
  */
 export const API_ROOT_URL = 'https://healthmanagementsystem-a1l5.onrender.com';
 
@@ -30,6 +25,8 @@ export const ENDPOINTS = {
   },
   admin: {
     invite: '/api/admin/invite',
+    // Placeholder: the current backend OpenAPI document does not expose a user-list route.
+    users: '/api/admin/users',
     unlock: (id: string) => `/api/admin/users/${enc(id)}/unlock`,
     reactivate: (id: string) => `/api/admin/users/${enc(id)}/reactivate`,
     deactivate: (id: string) => `/api/admin/users/${enc(id)}/deactivate`,

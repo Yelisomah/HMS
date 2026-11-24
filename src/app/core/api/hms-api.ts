@@ -4,7 +4,7 @@ import { ENDPOINTS as E, HistoryKind } from './api.config';
 import { ApiService } from './api.service';
 import * as M from './api.models';
 
-/** One typed method per backend endpoint, grouped by controller. */
+/** Typed endpoint methods grouped by controller; admin user listing is a backend-pending placeholder. */
 @Injectable({ providedIn: 'root' })
 export class HmsApi {
   private readonly api = inject(ApiService);
@@ -15,6 +15,7 @@ export class HmsApi {
   changePassword = (currentPassword: string, newPassword: string) => this.api.post<M.ResponseMessage>(E.auth.changePassword, { currentPassword, newPassword });
 
   // ---- admin ----
+  listUsers = () => this.api.get<M.UserAccountResponse[]>(E.admin.users);
   invite = (body: M.InviteUserRequest) => this.api.post<M.UserAccountResponse>(E.admin.invite, body);
   unlockUser = (id: string) => this.api.post<M.ResponseMessage>(E.admin.unlock(id));
   reactivateUser = (id: string) => this.api.post<M.ResponseMessage>(E.admin.reactivate(id));

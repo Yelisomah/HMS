@@ -1,4 +1,5 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { NoteList } from '../core/api/api.models';
@@ -66,11 +67,17 @@ export class NotesPanel {
     const fail = (e: unknown) => { this.error.set(errorMessage(e, 'Could not open the note.')); this.busy.set(false); };
     this.api.noteForCheckIn(id).subscribe({
       next: (n) => n?.id ? go(n.id) : this.start(id, go, fail),
-      error: () => this.start(id, go, fail),
+      error: (e: unknown) => {
+        if (e instanceof HttpErrorResponse && e.status === 404) this.start(id, go, fail);
+        else fail(e);
+      },
     });
   }
 
   private start(id: number, go: (n: string) => void, fail: (e: unknown) => void): void {
-    this.api.startNote(id).subscribe({ next: (n) => go(n.id), error: fail });
+    this.api.startNote(id).subscribe({
+      next: (n) => n?.id ? go(n.id) : fail(new Error('The server did not return the new note ID.')),
+      error: fail,
+    });
   }
 }

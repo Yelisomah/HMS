@@ -1,4 +1,4 @@
-import { decodeJwt, hasRole } from './auth.service';
+import { decodeJwt, hasRole, rolesFromClaims } from './auth.service';
 
 function jwt(claims: object): string {
   const b64 = (o: object) => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -23,5 +23,18 @@ describe('JWT helpers', () => {
     expect(hasRole('ADMIN', 'ADMIN')).toBe(true);
     expect(hasRole('NURSE', 'ADMIN', 'DOCTOR')).toBe(false);
     expect(hasRole(undefined, 'ADMIN')).toBe(false);
+    expect(hasRole('SUPERADMIN', 'ADMIN')).toBe(false);
+  });
+
+  it('reads multiple roles from common JWT claim formats', () => {
+    expect(rolesFromClaims({
+      authorities: [{ authority: 'ROLE_DOCTOR' }, { authority: 'ROLE_NURSE' }],
+      realm_access: { roles: ['ADMIN'] },
+    })).toEqual(['DOCTOR', 'NURSE', 'ADMIN']);
+  });
+
+  it('normalizes display-name roles without granting substring matches', () => {
+    expect(hasRole(['Lab Technician'], 'LAB_TECHNICIAN')).toBe(true);
+    expect(hasRole('SUPERADMIN', 'ADMIN')).toBe(false);
   });
 });

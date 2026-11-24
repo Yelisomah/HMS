@@ -34,6 +34,12 @@ import { pretty, tone } from '../shared/ui';
     } @else if (!items().length) {
       <div class="panel-card empty-state"><p>No active check-ins.</p></div>
     } @else {
+      @if (unresolved().length) {
+        <p class="notice warn" role="status">
+          The API did not provide check-in IDs for {{ unresolved().length }} visit{{ unresolved().length === 1 ? '' : 's' }}.
+          Those visits cannot open vitals, notes, or checkout until the patient response includes its check-ins.
+        </p>
+      }
       <div class="table-wrap">
         <table>
           <thead><tr><th>#</th><th>Patient</th><th>Registration no.</th><th>Age</th><th>Checked in</th><th>Status</th><th></th></tr></thead>
@@ -41,7 +47,7 @@ import { pretty, tone } from '../shared/ui';
             @for (c of sorted(); track c.registrationNumber + c.checkInTime) {
               <tr>
                 <td>{{ c.queuePosition ?? '–' }}</td>
-                <td>{{ c.patientName }}</td>
+                <td>{{ c.patientName }} @if (c.checkInIdError) { <small class="muted">{{ c.checkInIdError }}</small> }</td>
                 <td>{{ c.registrationNumber }}</td>
                 <td>{{ c.age ?? '–' }}</td>
                 <td>{{ c.checkInTime | date: 'HH:mm' }}</td>
@@ -68,6 +74,7 @@ export class Queue {
   readonly tone = tone;
   readonly pretty = pretty;
   readonly sorted = computed(() => [...this.items()].sort((a, b) => (a.queuePosition ?? 999) - (b.queuePosition ?? 999)));
+  readonly unresolved = computed(() => this.items().filter((item) => item.checkInId === null));
 
   constructor() { this.load(); }
 

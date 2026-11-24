@@ -73,7 +73,7 @@ export class PatientRegister {
     this.busy.set(true);
     this.error.set('');
     const body = { ...clean(this.form.getRawValue()), ...(confirmDuplicates ? { confirmPossibleDuplicates: true } : {}) };
-    this.api.registerPatient(body as never).subscribe({
+    this.api.registerPatient(body).subscribe({
       next: (r) => {
         this.busy.set(false);
         if (r.registered && r.patient?.patientId) {
