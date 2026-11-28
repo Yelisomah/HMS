@@ -4,6 +4,8 @@ import { HmsApi } from './hms-api';
 import { CheckInService } from './checkin.service';
 
 describe('CheckInService', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
   it('resolves an active visit ID from the patient check-in collection for any staff member', () => {
     const active = [{
       patientName: 'Ada Mensah',

@@ -26,7 +26,7 @@ describe('authInterceptor', () => {
     http = TestBed.inject(HttpClient);
     ctrl = TestBed.inject(HttpTestingController);
   });
-  afterEach(() => ctrl.verify());
+  afterEach(() => { ctrl.verify(); TestBed.resetTestingModule(); });
 
   it('adds the bearer token', () => {
     http.get('/api/patients/search').subscribe();
@@ -45,7 +45,7 @@ describe('authInterceptor', () => {
     http.get('/api/checkin/active').subscribe((r) => (result = r));
     ctrl.expectOne('/api/checkin/active').flush({}, { status: 401, statusText: 'Unauthorized' });
 
-    const refresh = ctrl.expectOne('/api/auth/refresh');
+    const refresh = ctrl.expectOne((r) => r.url.endsWith('/api/auth/refresh'));
     expect(refresh.request.body).toEqual({ refreshToken: 'refresh-1' });
     refresh.flush({ accessToken: newToken, refreshToken: 'refresh-2' });
 
@@ -61,7 +61,7 @@ describe('authInterceptor', () => {
     let failed = false;
     http.get('/api/checkin/active').subscribe({ error: () => (failed = true) });
     ctrl.expectOne('/api/checkin/active').flush({}, { status: 401, statusText: 'Unauthorized' });
-    ctrl.expectOne('/api/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne((r) => r.url.endsWith('/api/auth/refresh')).flush({}, { status: 401, statusText: 'Unauthorized' });
     expect(failed).toBe(true);
     expect(auth.accessToken()).toBeNull();
   });

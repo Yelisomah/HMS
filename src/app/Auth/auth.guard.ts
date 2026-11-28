@@ -8,6 +8,10 @@ export const SUPPORTED_ROLES = [
 export const CLINICAL_ROLES = ['ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE'] as const;
 export const PATIENT_FLOW_ROLES = [...CLINICAL_ROLES, 'OPD'] as const;
 export const PATIENT_CHART_ROLES = [...CLINICAL_ROLES, 'OPD'] as const;
+export const PHARMACY_ROLES = ['ADMIN', 'PHARMACIST', 'DOCTOR', 'PHYSICIAN'] as const;
+export const LAB_ROLES = ['ADMIN', 'LAB_TECHNICIAN', 'DOCTOR', 'PHYSICIAN', 'NURSE'] as const;
+export const BILLING_ROLES = ['ADMIN', 'OPD'] as const;
+export const REPORT_ROLES = ['ADMIN', 'DOCTOR', 'PHYSICIAN', 'NURSE', 'PHARMACIST', 'LAB_TECHNICIAN'] as const;
 export const RECORD_ROLES = ['ADMIN', 'DOCTOR', 'PHYSICIAN'] as const;
 
 /** Requires a signed-in user. The backend still authorises every request. */
